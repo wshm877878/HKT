@@ -258,29 +258,25 @@ namespace CIGAR::Panel
 
 		void RenderModule(const Module* a_module)
 		{
-			const auto name = a_module->Name();
+			const std::string_view name = a_module->Name();
 			const auto* label = Find(name);
+			const std::string id = kRelease
+			                           ? std::format("{}##{}", label ? label->title : a_module->Name(), name)
+			                           : std::format("{} ({})##{}", label ? label->title : a_module->Name(), name, name);
 
 			bool on = Settings::Enabled(name);
-			const char* title = label && label->title ? label->title : name.data();
-			if (ImGui::Checkbox(title, &on)) {
+			if (ImGui::Checkbox(id.c_str(), &on)) {
 				Settings::SetEnabled(name, on);
-			}
-
-			// Authors read the internal name anyway; in release it is duplicate chrome.
-			if constexpr (!kRelease) {
-				ImGui::SameLine();
-				ImGui::TextColored(kDim, "(%s)", name.data());
 			}
 
 			ImGui::Indent();
 			ImGui::PushTextWrapPos(0.0f);
 
-			if (label && label->what && *label->what) {
+			if (label && label->what[0] != '\0') {
 				ImGui::TextColored(kDim, "%s", label->what);
 			}
 
-			if (label && label->needs && *label->needs) {
+			if (label && label->needs[0] != '\0') {
 				ImGui::TextColored(kDim, "依赖: %s (未检测到时待机)", label->needs);
 			}
 
