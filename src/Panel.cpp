@@ -13,7 +13,6 @@
 #include "WeaponSwap.h"
 
 #include <set>
-#include <filesystem>
 
 // The vendored header mixes struct/class and enum types; its warnings are upstream's.
 #pragma warning(push)
@@ -449,27 +448,6 @@ namespace CIGAR::Panel
 		if (!GetProcAddress(framework, "AddSectionItem") || !GetProcAddress(framework, "igCheckbox")) {
 			logs::error("control panel: this SKSE Menu Framework lacks AddSectionItem/igCheckbox; no panel");
 			return;
-		}
-
-		// 注入中文字体支持：自动从 Windows 字体目录加载中文字库
-		if (const auto io = ImGui::GetIO(); io && io->Fonts) {
-			static const char* fontCandidates[] = {
-				"C:\\Windows\\Fonts\\msyh.ttc",   // 微软雅黑
-				"C:\\Windows\\Fonts\\simhei.ttf", // 黑体
-				"C:\\Windows\\Fonts\\msyhl.ttc",  // 微软雅黑 Light
-				"C:\\Windows\\Fonts\\simsun.ttc"  // 宋体
-			};
-			for (const auto* path : fontCandidates) {
-				if (std::filesystem::exists(path)) {
-					const auto ranges = ImGui::ImFontAtlas::GetGlyphRangesChineseSimplifiedCommon(io->Fonts);
-					ImFontConfig cfg{};
-					cfg.MergeMode = true; // 合并到现有字体中，不破坏原英文图标
-					if (ImGui::ImFontAtlas::AddFontFromFileTTF(io->Fonts, path, 18.0f, &cfg, ranges)) {
-						logs::info("control panel: successfully loaded Chinese font: {}", path);
-						break;
-					}
-				}
-			}
 		}
 
 		SKSEMenuFramework::SetSection(kSection);
