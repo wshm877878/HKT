@@ -89,10 +89,10 @@ namespace CIGAR::Panel
 			const auto name = a_module->Name();
 			const auto* label = FindLabel(name);
 
-			bool on = Settings::IsModuleEnabled(name);
-			const auto title = label ? label->title : name.data();
+			bool on = Settings::Enabled(name);
+			const char* title = label && label->title ? label->title : name.data();
 			if (ImGui::Checkbox(title, &on)) {
-				Settings::SetModuleEnabled(name, on);
+				Settings::SetEnabled(name, on);
 			}
 
 			// Authors read the internal name anyway; in release it is duplicate chrome.
@@ -115,6 +115,8 @@ namespace CIGAR::Panel
 			if (!on) {
 				ImGui::TextColored(kDim, "已关闭。不显示提示");
 			} else if constexpr (!kRelease) {
+				// Author-side: the live gate inputs and the last log line, so a missing prompt is
+				// explained without opening the log.
 				const auto gate = a_module->ShownGate();
 				const auto line = a_module->ShownLine();
 				ImGui::TextColored(kDim, "条件: %s", gate.empty() ? "无记录" : gate.c_str());
@@ -143,53 +145,87 @@ namespace CIGAR::Panel
 
 		void RenderKeys()
 		{
+			const auto& keys = Settings::Keys();
+			if (keys.empty()) {
+				ImGui::TextColored(kDim, "未设置按键");
+				return;
+			}
+
 			ImGui::PushTextWrapPos(0.0f);
 			ImGui::TextColored(kDim,
-				"设置用于触发屏幕提示的按键。由于手柄按键是固定的，此处仅设置键盘键位。");
+				"提示分配的 DirectInput 扫描码。可以在 CIGAR.json 中进行配置。");
 			ImGui::PopTextWrapPos();
 			ImGui::Spacing();
 
-			auto keys = Settings::PromptKeys();
-			bool changed = false;
-
 			for (std::size_t i = 0; i < keys.size(); ++i) {
-				const auto label = std::format("按键插槽 {}", i + 1);
-				int key = static_cast<int>(keys[i]);
-				if (ImGui::InputInt(label.c_str(), &key)) {
-					keys[i] = static_cast<std::uint32_t>(key);
-					changed = true;
-				}
+				ImGui::Text("按键插槽 %zu:", i + 1);
 				ImGui::SameLine();
-				ImGui::TextColored(kDim, "(DX 扫描码: %u)", keys[i]);
-			}
-
-			if (changed) {
-				Settings::SetPromptKeys(keys);
+				ImGui::TextColored(kDim, "0x%02X", keys[i]);
 			}
 		}
 
 		void RenderPromptOnly()
 		{
+			const auto& map = Settings::PromptOnly();
+			if (map.empty()) {
+				ImGui::TextColored(kDim, "无被重定向的模组按键");
+				return;
+			}
+
 			ImGui::PushTextWrapPos(0.0f);
 			ImGui::TextColored(kDim,
-				"设置被联动模组的原始按键。将其重定向后，这些按键将仅通过 CIGAR 提示触发，避免冲突。");
+				"被 CIGAR 拦截并设为仅提示触发的模组原按键。关闭对应模块后将自动恢复。");
 			ImGui::PopTextWrapPos();
 			ImGui::Spacing();
 
-			auto map = Settings::PromptOnlyDirect();
-			bool changed = false;
+			for (const auto& [mod, key] : map) {
+				ImGui::Text("%s:", mod.c_str());
+				ImGui::SameLine();
+				ImGui::TextColored(kDim, "0x%02X", key);
+			}
+		}
 
-			for (auto& [name, code] : map) {
-				int val = static_cast<int>(code);
-				if (ImGui::InputInt(name.c_str(), &val)) {
-					code = static_cast<std::uint32_t>(val);
-					changed = true;
-				}
+		void RenderEatOptions()
+		{
+			bool inCombat = Settings::CombatEat();
+			if (ImGui::Checkbox("允许战斗中进食", &inCombat)) {
+				Settings::SetCombatEat(inCombat);
 			}
 
-			if (changed) {
-				Settings::SetPromptOnlyDirect(map);
+			ImGui::Indent();
+			ImGui::PushTextWrapPos(0.0f);
+			ImGui::TextColored(kDim,
+				"关闭后，战斗中即使饥饿也不会弹出进食提示。");
+			ImGui::PopTextWrapPos();
+			ImGui::Unindent();
+		}
+
+		void RenderDrinkOptions()
+		{
+			bool inCombat = Settings::CombatPotion();
+			if (ImGui::Checkbox("允许战斗中喝药", &inCombat)) {
+				Settings::SetCombatPotion(inCombat);
 			}
+
+			ImGui::Indent();
+			ImGui::PushTextWrapPos(0.0f);
+			ImGui::TextColored(kDim,
+				"关闭后，战斗中即使生命值或魔法值降低也不会弹出喝药提示。");
+			ImGui::PopTextWrapPos();
+			ImGui::Unindent();
+			ImGui::Spacing();
+
+			bool overrule = Settings::OverruleStreamlinedInteractions();
+			if (ImGui::Checkbox("禁用 Streamlined Interactions 的自带喝药提示", &overrule)) {
+				Settings::SetOverruleStreamlinedInteractions(overrule);
+			}
+
+			ImGui::Indent();
+			ImGui::PushTextWrapPos(0.0f);
+			ImGui::TextColored(kDim,
+				"若开启 SI 自带的喝药提示，可能会与 CIGAR 冲突叠字。开启此项后 CIGAR 将自动接管并禁用 SI 喝药功能。");
+			ImGui::PopTextWrapPos();
+			ImGui::Unindent();
 		}
 
 		void __stdcall RenderModules()
@@ -222,23 +258,16 @@ namespace CIGAR::Panel
 		{
 			LogFirstDraw(kPageOptions);
 			ImGui::SeparatorText("进食设置");
-			bool eatInCombat = Settings::EatInCombat();
-			if (ImGui::Checkbox("允许在战斗中进食", &eatInCombat)) {
-				Settings::SetEatInCombat(eatInCombat);
-			}
-
+			RenderEatOptions();
 			ImGui::SeparatorText("药水设置");
-			bool drinkInCombat = Settings::DrinkInCombat();
-			if (ImGui::Checkbox("允许在战斗中喝药", &drinkInCombat)) {
-				Settings::SetDrinkInCombat(drinkInCombat);
-			}
+			RenderDrinkOptions();
 		}
 	}
 
 	void Register()
 	{
 		if (!SKSEMenuFramework::IsInstalled()) {
-			logs::warn("SKSE Menu Framework 未安装; 控制面板将不可用");
+			logs::warn("SKSE Menu Framework is not installed; control panel unavailable");
 			return;
 		}
 
@@ -246,6 +275,6 @@ namespace CIGAR::Panel
 		SKSEMenuFramework::AddSectionItem(kPageModules, RenderModules);
 		SKSEMenuFramework::AddSectionItem(kPageKeys, RenderKeyPage);
 		SKSEMenuFramework::AddSectionItem(kPageOptions, RenderOptions);
-		logs::info("已将 CIGAR 注册到 SKSE Menu Framework");
+		logs::info("已将 CIGAR 成功注册到 SKSE Menu Framework");
 	}
 }
