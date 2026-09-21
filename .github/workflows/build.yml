@@ -21,20 +21,20 @@ jobs:
 
       - name: Configure CMake
         run: |
-          cmake -B build -S . `
-            -A x64 `
+          cmake -B build -S . -G Ninja `
+            -DCMAKE_BUILD_TYPE=RelWithDebInfo `
             -DCMAKE_TOOLCHAIN_FILE="$env:VCPKG_INSTALLATION_ROOT/scripts/buildsystems/vcpkg.cmake" `
             -DCIGAR_RELEASE=ON
 
       - name: Build CIGAR DLL
         run: |
-          cmake --build build --config Release
+          cmake --build build
 
       - name: Upload compiled DLL
         uses: actions/upload-artifact@v4
         with:
           name: CIGAR-Chinese-DLL
           path: |
-            build/Release/CIGAR.dll
             build/CIGAR.dll
+            build/Release/CIGAR.dll
           if-no-files-found: error
