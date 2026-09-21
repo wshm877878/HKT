@@ -145,87 +145,47 @@ namespace CIGAR::Panel
 
 		void RenderKeys()
 		{
-			const auto& keys = Settings::Keys();
-			if (keys.empty()) {
-				ImGui::TextColored(kDim, "未设置按键");
-				return;
-			}
-
+			const auto keys = Settings::PromptKeys();
 			ImGui::PushTextWrapPos(0.0f);
 			ImGui::TextColored(kDim,
-				"提示分配的 DirectInput 扫描码。可以在 CIGAR.json 中进行配置。");
+				"设置用于触发屏幕提示的键盘按键（DirectInput 扫描码）。手柄使用默认按键。");
 			ImGui::PopTextWrapPos();
 			ImGui::Spacing();
 
 			for (std::size_t i = 0; i < keys.size(); ++i) {
-				ImGui::Text("按键插槽 %zu:", i + 1);
+				const auto label = std::format("按键插槽 {}", i + 1);
+				int key = static_cast<int>(keys[i]);
+				if (ImGui::InputInt(label.c_str(), &key)) {
+					Settings::SetPromptKey(i, static_cast<std::uint32_t>(key));
+				}
 				ImGui::SameLine();
-				ImGui::TextColored(kDim, "0x%02X", keys[i]);
+				ImGui::TextColored(kDim, "(DX 扫描码: %u)", keys[i]);
 			}
+		}
+
+		void RenderPromptOnlyTarget(const char* a_label, std::string_view a_target)
+		{
+			bool on = Settings::PromptOnly(a_target);
+			if (ImGui::Checkbox(a_label, &on)) {
+				Settings::SetPromptOnly(a_target, on);
+			}
+			const auto key = Settings::ManualKey(a_target);
+			ImGui::SameLine();
+			ImGui::TextColored(kDim, "(原按键: %d)", key);
 		}
 
 		void RenderPromptOnly()
 		{
-			const auto& map = Settings::PromptOnly();
-			if (map.empty()) {
-				ImGui::TextColored(kDim, "无被重定向的模组按键");
-				return;
-			}
-
 			ImGui::PushTextWrapPos(0.0f);
 			ImGui::TextColored(kDim,
-				"被 CIGAR 拦截并设为仅提示触发的模组原按键。关闭对应模块后将自动恢复。");
+				"开启后，将拦截这些模组的原快捷键，使其仅通过 CIGAR 屏幕提示触发，防止按键冲突。");
 			ImGui::PopTextWrapPos();
 			ImGui::Spacing();
 
-			for (const auto& [mod, key] : map) {
-				ImGui::Text("%s:", mod.c_str());
-				ImGui::SameLine();
-				ImGui::TextColored(kDim, "0x%02X", key);
-			}
-		}
-
-		void RenderEatOptions()
-		{
-			bool inCombat = Settings::CombatEat();
-			if (ImGui::Checkbox("允许战斗中进食", &inCombat)) {
-				Settings::SetCombatEat(inCombat);
-			}
-
-			ImGui::Indent();
-			ImGui::PushTextWrapPos(0.0f);
-			ImGui::TextColored(kDim,
-				"关闭后，战斗中即使饥饿也不会弹出进食提示。");
-			ImGui::PopTextWrapPos();
-			ImGui::Unindent();
-		}
-
-		void RenderDrinkOptions()
-		{
-			bool inCombat = Settings::CombatPotion();
-			if (ImGui::Checkbox("允许战斗中喝药", &inCombat)) {
-				Settings::SetCombatPotion(inCombat);
-			}
-
-			ImGui::Indent();
-			ImGui::PushTextWrapPos(0.0f);
-			ImGui::TextColored(kDim,
-				"关闭后，战斗中即使生命值或魔法值降低也不会弹出喝药提示。");
-			ImGui::PopTextWrapPos();
-			ImGui::Unindent();
-			ImGui::Spacing();
-
-			bool overrule = Settings::OverruleStreamlinedInteractions();
-			if (ImGui::Checkbox("禁用 Streamlined Interactions 的自带喝药提示", &overrule)) {
-				Settings::SetOverruleStreamlinedInteractions(overrule);
-			}
-
-			ImGui::Indent();
-			ImGui::PushTextWrapPos(0.0f);
-			ImGui::TextColored(kDim,
-				"若开启 SI 自带的喝药提示，可能会与 CIGAR 冲突叠字。开启此项后 CIGAR 将自动接管并禁用 SI 喝药功能。");
-			ImGui::PopTextWrapPos();
-			ImGui::Unindent();
+			RenderPromptOnlyTarget("Valhalla Combat 处决", "valhalla");
+			RenderPromptOnlyTarget("Acheron 投降", "surrender");
+			RenderPromptOnlyTarget("Grapple 擒拿", "grapple");
+			RenderPromptOnlyTarget("Fill Her Up 排出", "fillherup");
 		}
 
 		void __stdcall RenderModules()
@@ -250,24 +210,127 @@ namespace CIGAR::Panel
 			LogFirstDraw(kPageKeys);
 			ImGui::SeparatorText("提示按键");
 			RenderKeys();
-			ImGui::SeparatorText("模组快捷键");
+			ImGui::SeparatorText("模组快捷键重定向");
 			RenderPromptOnly();
 		}
 
 		void __stdcall RenderOptions()
 		{
 			LogFirstDraw(kPageOptions);
-			ImGui::SeparatorText("进食设置");
-			RenderEatOptions();
-			ImGui::SeparatorText("药水设置");
-			RenderDrinkOptions();
+
+			ImGui::SeparatorText("进食");
+			int stage = Settings::EatMinStage();
+			if (ImGui::SliderInt("弹出进食提示的饥饿阶段", &stage, Eat::kMinStageLow, Eat::kMinStageHigh)) {
+				Settings::SetEatMinStage(stage);
+			}
+			if (ImGui::IsItemDeactivatedAfterEdit()) {
+				Settings::Save();
+			}
+			ImGui::TextColored(kDim, "默认 3 阶段。非战斗中达到此饥饿阶段时弹出最便宜食物的进食提示。");
+
+			ImGui::SeparatorText("排泄");
+			int needs = Settings::NeedsMinPercent();
+			if (ImGui::SliderInt("弹出排泄提示的蓄积百分比", &needs, Needs::kMinPercentLow, Needs::kMinPercentHigh, "%d%%")) {
+				Settings::SetNeedsMinPercent(needs);
+			}
+			if (ImGui::IsItemDeactivatedAfterEdit()) {
+				Settings::Save();
+			}
+			ImGui::TextColored(kDim, "默认 50%%。Private Needs 膀胱/肠道蓄积度达到该数值时弹出排泄提示。");
+
+			ImGui::SeparatorText("药水");
+			{
+				auto tune = Settings::PotionTune();
+				bool changed = false;
+				changed |= ImGui::Checkbox("生命##pot-hp", &tune.health);
+				ImGui::SameLine();
+				changed |= ImGui::Checkbox("耐力##pot-sp", &tune.stamina);
+				ImGui::SameLine();
+				changed |= ImGui::Checkbox("法力##pot-mp", &tune.magicka);
+				changed |= ImGui::Checkbox("解毒##pot-poison", &tune.curePoison);
+				ImGui::SameLine();
+				changed |= ImGui::Checkbox("祛病##pot-disease", &tune.cureDisease);
+				ImGui::SameLine();
+				changed |= ImGui::Checkbox("水下呼吸##pot-water", &tune.waterBreathing);
+				if (changed) {
+					Settings::SetPotionTune(tune);
+					Settings::Save();
+				}
+
+				const auto bar = [&tune](const char* a_label, float& a_value, const char* a_help) {
+					float percent = a_value * 100.0f;
+					const float low = Potion::kThresholdLow * 100.0f;
+					const float high = Potion::kThresholdHigh * 100.0f;
+					if (ImGui::SliderFloat(a_label, &percent, low, high, "%.0f%%")) {
+						a_value = percent / 100.0f;
+						Settings::SetPotionTune(tune);
+					}
+					if (ImGui::IsItemDeactivatedAfterEdit()) {
+						Settings::Save();
+					}
+					ImGui::TextColored(kDim, "%s", a_help);
+				};
+
+				bar("生命提示阈值##pot-hp-th", tune.healthThreshold, "默认 50%。生命值低于此比例时提示喝生命药水。");
+				bar("生命危机阈值##pot-hp-urgent", tune.urgentHealthThreshold, "默认 20%。低于此比例时优先选择强效生命药水。");
+				bar("耐力提示阈值##pot-sp-th", tune.staminaThreshold, "默认 50%。");
+				bar("法力提示阈值##pot-mp-th", tune.magickaThreshold, "默认 50%。");
+			}
+
+			ImGui::SeparatorText("武器切换");
+			float swap = Settings::WeaponSwapRange();
+			if (ImGui::SliderFloat("切换判定距离", &swap, WeaponSwap::kRangeLow, WeaponSwap::kRangeHigh, "%.0f")) {
+				Settings::SetWeaponSwapRange(swap);
+			}
+			if (ImGui::IsItemDeactivatedAfterEdit()) {
+				Settings::Save();
+			}
+			ImGui::TextColored(kDim, "默认 800。敌人在此距离外或逃跑时提示远程武器，在此距离内提示近战武器。");
+
+			ImGui::SeparatorText("柔术");
+			float reach = Settings::JujutsuReach();
+			if (ImGui::SliderFloat("柔术有效距离", &reach, Jujutsu::kReachLow, Jujutsu::kReachHigh, "%.0f")) {
+				Settings::SetJujutsuReach(reach);
+			}
+			if (ImGui::IsItemDeactivatedAfterEdit()) {
+				Settings::Save();
+			}
+			ImGui::TextColored(kDim, "默认 250。格挡中的人形敌人在该距离内时弹出柔术提示。");
+
+			auto tune = Settings::JujutsuTune();
+			float guardPct = tune.guardStun * 100.0f;
+			if (ImGui::SliderFloat("失衡条伤害", &guardPct, 0.0f, 100.0f, "%.0f%%")) {
+				tune.guardStun = guardPct / 100.0f;
+				Settings::SetJujutsuTune(tune);
+			}
+			if (ImGui::IsItemDeactivatedAfterEdit()) {
+				Settings::Save();
+			}
+			ImGui::TextColored(kDim, "默认 15%%。对格挡目标的失衡槽造成的伤害百分比。");
+
+			ImGui::SeparatorText("脱衣·穿衣");
+			float range = Settings::PlaceRange();
+			if (ImGui::SliderFloat("家具交互距离", &range, Settings::kPlaceRangeMin, Settings::kPlaceRangeMax, "%.0f")) {
+				Settings::SetPlaceRange(range);
+			}
+			if (ImGui::IsItemDeactivatedAfterEdit()) {
+				Settings::Save();
+			}
+			ImGui::TextColored(kDim, "默认 250。离开瞄准的床或衣柜超过此距离时取消提示。");
 		}
 	}
 
 	void Register()
 	{
-		if (!SKSEMenuFramework::IsInstalled()) {
-			logs::warn("SKSE Menu Framework is not installed; control panel unavailable");
+		const auto framework = SKSEMenuFramework_Module();
+		if (!framework) {
+			logs::info("control panel: SKSE Menu Framework is not loaded; no panel");
+			return;
+		}
+
+		// The header ignores a missing export silently, so check the one that matters here.
+		if (!GetProcAddress(framework, "AddSectionItem") || !GetProcAddress(framework, "igCheckbox")) {
+			logs::error("control panel: this SKSE Menu Framework lacks AddSectionItem/igCheckbox; no panel");
 			return;
 		}
 
@@ -275,6 +338,6 @@ namespace CIGAR::Panel
 		SKSEMenuFramework::AddSectionItem(kPageModules, RenderModules);
 		SKSEMenuFramework::AddSectionItem(kPageKeys, RenderKeyPage);
 		SKSEMenuFramework::AddSectionItem(kPageOptions, RenderOptions);
-		logs::info("已将 CIGAR 成功注册到 SKSE Menu Framework");
+		logs::info("control panel: registered {}/{{{}, {}, {}}} in SKSE Menu Framework", kSection, kPageModules, kPageKeys, kPageOptions);
 	}
 }
