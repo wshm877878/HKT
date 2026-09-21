@@ -29,6 +29,30 @@ jobs:
             fs.writeFileSync("vcpkg.json", JSON.stringify(pkg, null, 2));
           '
 
+      - name: Force UTF-8 with BOM on all source files
+        shell: bash
+        run: |
+          node -e '
+            const fs = require("fs");
+            const path = require("path");
+            function walk(dir) {
+              for (const file of fs.readdirSync(dir)) {
+                const full = path.join(dir, file);
+                if (fs.statSync(full).isDirectory()) walk(full);
+                else if (/\.(cpp|c|h|hpp)$/i.test(full)) {
+                  let buf = fs.readFileSync(full);
+                  // Ensure UTF-8 BOM: 0xEF, 0xBB, 0xBF
+                  if (!(buf[0] === 0xEF && buf[1] === 0xBB && buf[2] === 0xBF)) {
+                    buf = Buffer.concat([Buffer.from([0xEF, 0xBB, 0xBF]), buf]);
+                    fs.writeFileSync(full, buf);
+                  }
+                }
+              }
+            }
+            if (fs.existsSync("src")) walk("src");
+            if (fs.existsSync("include")) walk("include");
+          '
+
       - name: Configure CMake
         run: |
           cmake -B build -S . -G Ninja `
