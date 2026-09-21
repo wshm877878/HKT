@@ -46,29 +46,29 @@ namespace CIGAR::Panel
 		// Modules missing here still get a switch, titled with their own name.
 		constexpr std::array kLabels{
 			Label{ "Bathe", "沐浴", "Bathing in Skyrim - Renewed",
-				"进入水中时会弹出沐浴提示，在瀑布下会弹出淋浴提示。清洗后可以清除污垢。" },
+				"进入水中时弹出沐浴提示，在瀑布下弹出淋浴提示。清洗后可以清除污垢。" },
 			Label{ "Dress", "脱衣·穿衣", "",
-				"在床、衣柜前或水中时会弹出脱衣提示。脱下的衣物会被记录，之后可通过穿衣提示一键重新穿上。" },
+				"在床、衣柜前或水中时弹出脱衣提示。脱下的衣物会被记录，之后可通过穿衣提示一键重新穿上。" },
 			Label{ "BaboKey", "绑架行为选择", "BaboDialogue",
-				"在被绑架的房间中会弹出行为选择提示。无需快捷键，直接通过屏幕提示选择。" },
+				"在被绑架的房间中弹出行为选择提示。无需快捷键，直接通过屏幕提示选择。" },
 			Label{ "LockOn", "锁定", "True Directional Movement",
-				"战斗中会弹出锁定敌人的提示。如果已经处于锁定状态则不会显示。" },
+				"战斗中弹出锁定敌人的提示。如果已经处于锁定状态则不会显示。" },
 			Label{ "Grapple", "擒拿", "Grapple (Patreon)",
-				"战斗中接近敌人时会弹出擒拿提示。若在锁定状态下使用，擒拿结束后会自动重新锁定。" },
+				"战斗中接近敌人时弹出擒拿提示。若在锁定状态下使用，擒拿结束后会自动重新锁定。" },
 			Label{ "Deflate", "排出", "Fill Her Up",
-				"身体被填满时会弹出排出提示。长按按键进行排出。" },
+				"身体被填满时弹出排出提示。长按按键进行排出。" },
 			Label{ "Surrender", "投降", "Acheron (Yamete Kudasai)",
-				"战斗中生命值低于40%时会弹出投降提示。长按按键投降，长按期间画面会进入子弹时间。" },
+				"战斗中生命值低于40%时弹出投降提示。长按按键投降，长按期间画面会进入子弹时间。" },
 			Label{ "Eat", "进食", "Survival Mode (SMI, Gourmet)",
-				"处于饥饿状态时会弹出吃掉身上最便宜食物的提示。不会选择生肉、酒精或变质食物。" },
+				"处于饥饿状态时弹出吃掉身上最便宜食物的提示。不会选择生肉、酒精或变质食物。" },
 			Label{ "WeaponSwap", "武器切换", "",
 				"敌人距离较远或逃跑时提示切换为远程武器，靠近时提示切换为近战武器。使用后可切回原武器。" },
 			Label{ "Execute", "处决", "Valhalla Combat",
-				"敌人失衡（破防）时会弹出处决提示。仅在能够真正触发处决动作时才会显示。" },
+				"敌人失衡（破防）时弹出处决提示。仅在能够真正触发处决动作时才会显示。" },
 			Label{ "Jujutsu", "柔术", "",
-				"对处于防御状态的人形敌人会弹出柔术提示。不会击杀敌人，而是将其击倒并破除防御。" },
+				"对处于防御状态的人形敌人弹出柔术提示。不会击杀敌人，而是将其击倒并破除防御。" },
 			Label{ "Needs", "排泄", "Private Needs - Orgasm",
-				"急需如厕时会弹出排泄提示。长按按键，找个隐蔽角落解决生理需求。" },
+				"急需如厕时弹出排泄提示。长按按键，找个隐蔽角落解决生理需求。" },
 			Label{ "Drink", "喝药", "Streamlined Interactions",
 				"生命值低于一半时弹出喝生命药水提示，魔法过半弹出喝法力药水。长按可喝解毒药剂。" },
 		};
@@ -138,6 +138,77 @@ namespace CIGAR::Panel
 			}
 		}
 
+		std::string NameOf(std::int32_t a_key)
+		{
+			if (a_key < 0) return "无";
+			const auto name = SKSE::InputMap::GetKeyName(static_cast<std::uint32_t>(a_key));
+			if (!name.empty()) return std::string(name);
+			return std::format("0x{:02X}", static_cast<std::uint32_t>(a_key));
+		}
+
+		void RenderPromptOnlyItem(std::string_view a_target, const char* a_label, const char* a_hidden, void (*a_apply)())
+		{
+			bool on = Settings::PromptOnly(a_target);
+			if (ImGui::Checkbox(a_label, &on)) {
+				Settings::SetPromptOnly(a_target, on);
+				SKSE::GetTaskInterface()->AddTask(a_apply);
+			}
+			ImGui::Indent();
+			const auto manual = Settings::ManualKey(a_target);
+			const auto manualName = manual >= 0 ? NameOf(manual) : std::string("无记录");
+			if (on) {
+				ImGui::TextColored(kDim, "模组快捷键已移至 %s (隐藏按键)。原按键 %s 目前已释放", a_hidden, manualName.c_str());
+			} else {
+				ImGui::TextColored(kDim, "使用模组自身快捷键。关闭时恢复的按键: %s", manualName.c_str());
+			}
+			ImGui::Unindent();
+		}
+
+		void RenderPromptOnly()
+		{
+			RenderPromptOnlyItem("grapple", "擒拿: 仅提示触发##po-grapple", "F13",
+				[] { Grapple::GetSingleton()->CheckKeys(); });
+			RenderPromptOnlyItem("surrender", "Acheron 投降: 仅提示触发##po-surrender", "F14",
+				[] { Surrender::GetSingleton()->ApplyKeyMode(); });
+			RenderPromptOnlyItem("valhalla", "Valhalla 处决: 仅提示触发##po-valhalla", "F15",
+				[] { Execute::GetSingleton()->CheckKey(); });
+
+			{
+				bool on = Settings::PromptOnly("privateneeds");
+				if (ImGui::Checkbox("Private Needs: 仅提示触发##po-privateneeds", &on)) {
+					Settings::SetPromptOnly("privateneeds", on);
+					SKSE::GetTaskInterface()->AddTask([] { Needs::GetSingleton()->ApplyKeyMode(); });
+				}
+				ImGui::Indent();
+				const auto keys = Needs::GetSingleton()->KeySummary();
+				if (on) {
+					ImGui::TextColored(kDim, "已解除 PNO 的 6 个快捷键（包括菜单 Y、查看状态 U）。关闭 MCM 时将重新检查");
+				} else {
+					ImGui::TextColored(kDim, "使用 PNO 自带快捷键。当前按键码: %s", keys.empty() ? "无" : keys.c_str());
+				}
+				ImGui::Unindent();
+			}
+
+			if (ImGui::Button("重新检测模组快捷键")) {
+				SKSE::GetTaskInterface()->AddTask([] {
+					Grapple::GetSingleton()->CheckKeys();
+					Surrender::GetSingleton()->CheckKey();
+					Execute::GetSingleton()->CheckKey();
+					Needs::GetSingleton()->ApplyKeyMode();
+				});
+			}
+			const auto grapple = Grapple::GetSingleton()->Key();
+			const auto surrender = Surrender::GetSingleton()->SurrenderKey();
+			const auto execution = Execute::GetSingleton()->ExecutionKey();
+			ImGui::TextColored(kDim, "当前状态: 擒拿 %s, Acheron 投降 %s, Valhalla 处决 %s",
+				grapple >= 0 ? NameOf(grapple).c_str() : "无", surrender >= 0 ? NameOf(surrender).c_str() : "无",
+				execution >= 0 ? NameOf(execution).c_str() : "无");
+
+			ImGui::PushTextWrapPos(0.0f);
+			ImGui::TextColored(kDim, "仅在加载游戏或点击此按钮时检测按键。在对应模组 MCM 中修改按键后请点击此按钮。若开启仅提示触发，会自动记录修改后的按键并将其重定向至隐藏键。");
+			ImGui::PopTextWrapPos();
+		}
+
 		// The framework lists a section's items by their names, so the numbers fix the order.
 		constexpr auto kPageModules = "1. 模块";
 		constexpr auto kPageKeys = "2. 快捷键";
@@ -148,44 +219,18 @@ namespace CIGAR::Panel
 			const auto keys = Settings::PromptKeys();
 			ImGui::PushTextWrapPos(0.0f);
 			ImGui::TextColored(kDim,
-				"设置用于触发屏幕提示的键盘按键（DirectInput 扫描码）。手柄使用默认按键。");
+				"分配给提示的 DirectInput 扫描码。可在 CIGAR.json 中修改。");
 			ImGui::PopTextWrapPos();
 			ImGui::Spacing();
 
 			for (std::size_t i = 0; i < keys.size(); ++i) {
 				const auto label = std::format("按键插槽 {}", i + 1);
-				int key = static_cast<int>(keys[i]);
-				if (ImGui::InputInt(label.c_str(), &key)) {
-					Settings::SetPromptKey(i, static_cast<std::uint32_t>(key));
-				}
+				const auto key = keys[i];
+				const auto name = NameOf(static_cast<std::int32_t>(key));
+				ImGui::Text("%s:", label.c_str());
 				ImGui::SameLine();
-				ImGui::TextColored(kDim, "(DX 扫描码: %u)", keys[i]);
+				ImGui::TextColored(kDim, "%s (0x%02X)", name.c_str(), key);
 			}
-		}
-
-		void RenderPromptOnlyTarget(const char* a_label, std::string_view a_target)
-		{
-			bool on = Settings::PromptOnly(a_target);
-			if (ImGui::Checkbox(a_label, &on)) {
-				Settings::SetPromptOnly(a_target, on);
-			}
-			const auto key = Settings::ManualKey(a_target);
-			ImGui::SameLine();
-			ImGui::TextColored(kDim, "(原按键: %d)", key);
-		}
-
-		void RenderPromptOnly()
-		{
-			ImGui::PushTextWrapPos(0.0f);
-			ImGui::TextColored(kDim,
-				"开启后，将拦截这些模组的原快捷键，使其仅通过 CIGAR 屏幕提示触发，防止按键冲突。");
-			ImGui::PopTextWrapPos();
-			ImGui::Spacing();
-
-			RenderPromptOnlyTarget("Valhalla Combat 处决", "valhalla");
-			RenderPromptOnlyTarget("Acheron 投降", "surrender");
-			RenderPromptOnlyTarget("Grapple 擒拿", "grapple");
-			RenderPromptOnlyTarget("Fill Her Up 排出", "fillherup");
 		}
 
 		void __stdcall RenderModules()
@@ -210,7 +255,7 @@ namespace CIGAR::Panel
 			LogFirstDraw(kPageKeys);
 			ImGui::SeparatorText("提示按键");
 			RenderKeys();
-			ImGui::SeparatorText("模组快捷键重定向");
+			ImGui::SeparatorText("拦截模组快捷键");
 			RenderPromptOnly();
 		}
 
@@ -275,6 +320,10 @@ namespace CIGAR::Panel
 				bar("生命危机阈值##pot-hp-urgent", tune.urgentHealthThreshold, "默认 20%。低于此比例时优先选择强效生命药水。");
 				bar("耐力提示阈值##pot-sp-th", tune.staminaThreshold, "默认 50%。");
 				bar("法力提示阈值##pot-mp-th", tune.magickaThreshold, "默认 50%。");
+
+				ImGui::PushTextWrapPos(0.0f);
+				ImGui::TextColored(kDim, "药水通过效果（恢复数值、解毒/祛病类型）进行判定。包含任何有害效果的药水将被排除。一次仅显示一个提示，优先级为：生命、水下呼吸、耐力、法力、解毒、祛病。");
+				ImGui::PopTextWrapPos();
 			}
 
 			ImGui::SeparatorText("武器切换");
@@ -306,7 +355,7 @@ namespace CIGAR::Panel
 			if (ImGui::IsItemDeactivatedAfterEdit()) {
 				Settings::Save();
 			}
-			ImGui::TextColored(kDim, "默认 15%%。对格挡目标的失衡槽造成的伤害百分比。");
+			ImGui::TextColored(kDim, "默认 15%%。对格挡目标的失衡槽造成的伤害百分比。布娃娃状态另计。");
 
 			ImGui::SeparatorText("脱衣·穿衣");
 			float range = Settings::PlaceRange();
