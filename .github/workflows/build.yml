@@ -19,10 +19,6 @@ jobs:
         with:
           arch: x64
 
-      - name: Setup vcpkg and install dependencies
-        run: |
-          vcpkg install nlohmann-json:x64-windows
-
       - name: Configure CMake
         run: |
           cmake -B build -S . `
