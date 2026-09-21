@@ -14,21 +14,18 @@ jobs:
         with:
           submodules: recursive
 
-      - name: Setup Ninja
-        uses: ashutoshvarma/setup-ninja@master
-        with:
-          version: 1.11.1
-
       - name: Setup MSVC x64 environment
         uses: ilammy/msvc-dev-cmd@v1
         with:
           arch: x64
 
-      - name: Fix vcpkg shallow clone
-        shell: bash
+      - name: Setup Ninja
+        run: choco install ninja
+
+      - name: Fetch required vcpkg baseline commit
         run: |
-          cd "$VCPKG_INSTALLATION_ROOT"
-          git fetch --unshallow || true
+          cd "$env:VCPKG_INSTALLATION_ROOT"
+          git fetch origin 1577f17ee57f42a0ef6d75bbb82cb37d0b76d7e8
 
       - name: Configure CMake
         run: |
