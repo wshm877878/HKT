@@ -13,6 +13,7 @@
 #include "WeaponSwap.h"
 
 #include <set>
+#include <filesystem>
 
 // The vendored header mixes struct/class and enum types; its warnings are upstream's.
 #pragma warning(push)
@@ -26,8 +27,6 @@ namespace CIGAR::Panel
 	{
 		constexpr auto kSection = "CIGAR";
 
-		// A release build hides what only a mod author reads: the internal module name, the live
-		// gate string and the last log line. It shows what the module DOES instead.
 #ifdef CIGAR_RELEASE
 		constexpr bool kRelease = true;
 #else
@@ -39,11 +38,9 @@ namespace CIGAR::Panel
 			std::string_view module;
 			const char* title;
 			const char* needs;
-			// What the player gets from it, in one or two sentences.
 			const char* what;
 		};
 
-		// Modules missing here still get a switch, titled with their own name.
 		constexpr std::array kLabels{
 			Label{ "Bathe", "沐浴", "Bathing in Skyrim - Renewed",
 				"进入水中时弹出沐浴提示，在瀑布下弹出淋浴提示。清洗后可以清除污垢。" },
@@ -88,12 +85,10 @@ namespace CIGAR::Panel
 
 		struct KeyName
 		{
-			std::uint32_t code;  // DirectInput scan code
+			std::uint32_t code;
 			const char* name;
 		};
 
-		// The keys offered for prompt slots: the ones SkyPrompt has icons for and a player can reach
-		// without leaving the movement keys for long.
 		constexpr std::array kKeys{
 			KeyName{ 0x02, "1" }, KeyName{ 0x03, "2" }, KeyName{ 0x04, "3" }, KeyName{ 0x05, "4" },
 			KeyName{ 0x06, "5" }, KeyName{ 0x07, "6" }, KeyName{ 0x08, "7" }, KeyName{ 0x09, "8" },
@@ -234,7 +229,6 @@ namespace CIGAR::Panel
 			}
 			ImGui::TextColored(kDim, "按屏幕提示出现的先后顺序从第 1 个开始分配。手柄使用 SkyPrompt 默认键位");
 
-			// Validate the key layout and point out any conflicts.
 			for (std::size_t a = 0; a < keys.size(); ++a) {
 				for (std::size_t b = a + 1; b < keys.size(); ++b) {
 					if (keys[a] == keys[b]) {
@@ -283,8 +277,6 @@ namespace CIGAR::Panel
 			if (!on) {
 				ImGui::TextColored(kDim, "已关闭。不显示提示");
 			} else if constexpr (!kRelease) {
-				// Author-side: the live gate inputs and the last log line, so a missing prompt is
-				// explained without opening the log.
 				const auto gate = a_module->ShownGate();
 				const auto line = a_module->ShownLine();
 				ImGui::TextColored(kDim, "条件: %s", gate.empty() ? "无记录" : gate.c_str());
@@ -306,7 +298,6 @@ namespace CIGAR::Panel
 			}
 		}
 
-		// The framework lists a section's items by their names, so the numbers fix the order.
 		constexpr auto kPageModules = "1. 模块";
 		constexpr auto kPageKeys = "2. 快捷键";
 		constexpr auto kPageOptions = "3. 详细设置";
@@ -455,10 +446,30 @@ namespace CIGAR::Panel
 			return;
 		}
 
-		// The header ignores a missing export silently, so check the one that matters here.
 		if (!GetProcAddress(framework, "AddSectionItem") || !GetProcAddress(framework, "igCheckbox")) {
 			logs::error("control panel: this SKSE Menu Framework lacks AddSectionItem/igCheckbox; no panel");
 			return;
+		}
+
+		// 注入中文字体支持：自动从 Windows 字体目录加载中文字库
+		if (const auto io = ImGui::GetIO(); io && io->Fonts) {
+			static const char* fontCandidates[] = {
+				"C:\\Windows\\Fonts\\msyh.ttc",   // 微软雅黑
+				"C:\\Windows\\Fonts\\simhei.ttf", // 黑体
+				"C:\\Windows\\Fonts\\msyhl.ttc",  // 微软雅黑 Light
+				"C:\\Windows\\Fonts\\simsun.ttc"  // 宋体
+			};
+			for (const auto* path : fontCandidates) {
+				if (std::filesystem::exists(path)) {
+					const auto ranges = ImGui::ImFontAtlas::GetGlyphRangesChineseSimplifiedCommon(io->Fonts);
+					ImFontConfig cfg{};
+					cfg.MergeMode = true; // 合并到现有字体中，不破坏原英文图标
+					if (ImGui::ImFontAtlas::AddFontFromFileTTF(io->Fonts, path, 18.0f, &cfg, ranges)) {
+						logs::info("control panel: successfully loaded Chinese font: {}", path);
+						break;
+					}
+				}
+			}
 		}
 
 		SKSEMenuFramework::SetSection(kSection);
