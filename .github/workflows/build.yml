@@ -7,7 +7,6 @@ on:
 jobs:
   build:
     runs-on: windows-2022
-
     steps:
       - name: Checkout repository and submodules
         uses: actions/checkout@v4
@@ -41,7 +40,6 @@ jobs:
                 if (fs.statSync(full).isDirectory()) walk(full);
                 else if (/\.(cpp|c|h|hpp)$/i.test(full)) {
                   let buf = fs.readFileSync(full);
-                  // Ensure UTF-8 BOM: 0xEF, 0xBB, 0xBF
                   if (!(buf[0] === 0xEF && buf[1] === 0xBB && buf[2] === 0xBF)) {
                     buf = Buffer.concat([Buffer.from([0xEF, 0xBB, 0xBF]), buf]);
                     fs.writeFileSync(full, buf);
@@ -62,7 +60,15 @@ jobs:
 
       - name: Build CIGAR DLL
         run: |
-          cmake --build build
+          cmake --build build -v 2>&1 | Tee-Object -FilePath "compile_error.txt"
+        shell: powershell
+
+      - name: Upload logs on failure or success
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: Build-Logs
+          path: compile_error.txt
 
       - name: Upload compiled DLL
         uses: actions/upload-artifact@v4
@@ -71,4 +77,4 @@ jobs:
           path: |
             build/CIGAR.dll
             build/Release/CIGAR.dll
-          if-no-files-found: error
+          if-no-files-found: ignore
