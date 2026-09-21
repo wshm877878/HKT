@@ -1,0 +1,38 @@
+name: Build SKSE DLL
+
+on:
+  push:
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: windows-2022
+
+    steps:
+      - name: Checkout repository and submodules
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Setup vcpkg and install dependencies
+        run: |
+          vcpkg install nlohmann-json:x64-windows
+
+      - name: Configure CMake
+        run: |
+          cmake -B build -S . `
+            -DCMAKE_TOOLCHAIN_FILE="$env:VCPKG_INSTALLATION_ROOT/scripts/buildsystems/vcpkg.cmake" `
+            -DCIGAR_RELEASE=ON
+
+      - name: Build CIGAR DLL
+        run: |
+          cmake --build build --config Release
+
+      - name: Upload compiled DLL
+        uses: actions/upload-artifact@v4
+        with:
+          name: CIGAR-Chinese-DLL
+          path: |
+            build/Release/CIGAR.dll
+            build/CIGAR.dll
+          if-no-files-found: error
