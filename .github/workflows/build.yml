@@ -14,6 +14,11 @@ jobs:
         with:
           submodules: recursive
 
+      - name: Setup MSVC x64 environment
+        uses: ilammy/msvc-dev-cmd@v1
+        with:
+          arch: x64
+
       - name: Setup vcpkg and install dependencies
         run: |
           vcpkg install nlohmann-json:x64-windows
@@ -21,6 +26,7 @@ jobs:
       - name: Configure CMake
         run: |
           cmake -B build -S . `
+            -A x64 `
             -DCMAKE_TOOLCHAIN_FILE="$env:VCPKG_INSTALLATION_ROOT/scripts/buildsystems/vcpkg.cmake" `
             -DCIGAR_RELEASE=ON
 
