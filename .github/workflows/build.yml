@@ -52,16 +52,14 @@ jobs:
           '
 
       - name: Configure CMake
+        shell: powershell
         run: |
-          cmake -B build -S . -G Ninja `
-            -DCMAKE_BUILD_TYPE=RelWithDebInfo `
-            -DCMAKE_TOOLCHAIN_FILE="$env:VCPKG_INSTALLATION_ROOT/scripts/buildsystems/vcpkg.cmake" `
-            -DCIGAR_RELEASE=ON
+          cmake -B build -S . -G Ninja -DCMAKE_BUILD_TYPE=RelWithDebInfo -DCMAKE_TOOLCHAIN_FILE="$env:VCPKG_INSTALLATION_ROOT/scripts/buildsystems/vcpkg.cmake" -DCIGAR_RELEASE=ON
 
       - name: Build CIGAR DLL
+        shell: powershell
         run: |
           cmake --build build -v 2>&1 | Tee-Object -FilePath "compile_error.txt"
-        shell: powershell
 
       - name: Upload logs on failure or success
         if: always()
