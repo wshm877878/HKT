@@ -1,78 +1,40 @@
-name: Build SKSE DLL
-
-on:
-  push:
-  workflow_dispatch:
-
-jobs:
-  build:
-    runs-on: windows-2022
-    steps:
-      - name: Checkout repository and submodules
-        uses: actions/checkout@v4
-        with:
-          submodules: recursive
-
-      - name: Setup MSVC x64 environment
-        uses: ilammy/msvc-dev-cmd@v1
-        with:
-          arch: x64
-
-      - name: Remove outdated vcpkg baseline
-        shell: bash
-        run: |
-          node -e '
-            const fs = require("fs");
-            const pkg = JSON.parse(fs.readFileSync("vcpkg.json", "utf8"));
-            delete pkg["builtin-baseline"];
-            fs.writeFileSync("vcpkg.json", JSON.stringify(pkg, null, 2));
-          '
-
-      - name: Force UTF-8 with BOM on all source files
-        shell: bash
-        run: |
-          node -e '
-            const fs = require("fs");
-            const path = require("path");
-            function walk(dir) {
-              for (const file of fs.readdirSync(dir)) {
-                const full = path.join(dir, file);
-                if (fs.statSync(full).isDirectory()) walk(full);
-                else if (/\.(cpp|c|h|hpp)$/i.test(full)) {
-                  let buf = fs.readFileSync(full);
-                  if (!(buf[0] === 0xEF && buf[1] === 0xBB && buf[2] === 0xBF)) {
-                    buf = Buffer.concat([Buffer.from([0xEF, 0xBB, 0xBF]), buf]);
-                    fs.writeFileSync(full, buf);
-                  }
-                }
-              }
-            }
-            if (fs.existsSync("src")) walk("src");
-            if (fs.existsSync("include")) walk("include");
-          '
-
-      - name: Configure CMake
+- name: Configure CMake
         shell: powershell
         run: |
-          cmake -B build -S . -G Ninja -DCMAKE_BUILD_TYPE=RelWithDebInfo -DCMAKE_TOOLCHAIN_FILE="$env:VCPKG_INSTALLATION_ROOT/scripts/buildsystems/vcpkg.cmake" -DCIGAR_RELEASE=ON
+          if (Test-Path "$env:VCPKG_INSTALLATION_ROOT/triplets/community/x64-windows-static-md.cmake") {
+            Copy-Item "$env:VCPKG_INSTALLATION_ROOT/triplets/community/x64-windows-static-md.cmake" "$env:VCPKG_INSTALLATION_ROOT/triplets/x64-windows-static-md.cmake" -Force
+          }
+          cmake -B build -S . -G Ninja `
+            -DCMAKE_BUILD_TYPE=RelWithDebInfo `
+            -DVCPKG_TARGET_TRIPLET=x64-windows-static-md `
+            -DCMAKE_MSVC_DEBUG_INFORMATION_FORMAT=Embedded `
+            -DCMAKE_TOOLCHAIN_FILE="$env:VCPKG_INSTALLATION_ROOT/scripts/buildsystems/vcpkg.cmake" `
+            -DCIGAR_RELEASE=ON
 
       - name: Build CIGAR DLL
         shell: powershell
         run: |
           cmake --build build -v 2>&1 | Tee-Object -FilePath "compile_error.txt"
 
-      - name: Upload logs on failure or success
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: Build-Logs
-          path: compile_error.txt
-
-      - name: Upload compiled DLL
-        uses: actions/upload-artifact@v4
-        with:
-          name: CIGAR-Chinese-DLL
-          path: |
-            build/CIGAR.dll
-            build/Release/CIGAR.dll
-          if-no-files-found: ignore
+      - name: Package Release Mod Structure
+        shell: powershell
+        run: |
+          New-Item -ItemType Directory -Force -Path "package/SKSE/Plugins"
+          $cigarDll = Get-ChildItem -Path "build" -Filter "CIGAR.dll" -Recurse | Select-Object -First 1
+          if ($cigarDll) {
+            Copy-Item $cigarDll.FullName "package/SKSE/Plugins/CIGAR.dll" -Force
+            Copy-Item $cigarDll.FullName "CIGAR.dll" -Force
+          }
+          Get-ChildItem -Path "build" -Filter "*.dll" -Recurse | ForEach-Object {
+            if ($_.Name -ne "CIGAR.dll") {
+              Copy-Item $_.FullName "package/SKSE/Plugins/$($_.Name)" -Force
+              Write-Host "Bundled extra DLL: $($_.Name)"
+            }
+          }
+          if (Test-Path "dist/CIGAR.json") {
+            Copy-Item "dist/CIGAR.json" "package/SKSE/Plugins/CIGAR.json"
+          }
+          if (Test-Path "dist/README-release.md") {
+            Copy-Item "dist/README-release.md" "package/README.md"
+          }
+          Compress-Archive -Path "package/*" -DestinationPath "CIGAR-Chinese-Mod.zip" -Force
