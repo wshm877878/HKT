@@ -1,9 +1,28 @@
-- name: Configure CMake
+name: Build CIGAR DLL
+
+"on":
+  workflow_dispatch:
+  push:
+    branches:
+      - master
+
+jobs:
+  build:
+    runs-on: windows-2025-vs2026
+
+    steps:
+      - name: Checkout source
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Configure CMake
         shell: powershell
         run: |
           if (Test-Path "$env:VCPKG_INSTALLATION_ROOT/triplets/community/x64-windows-static-md.cmake") {
             Copy-Item "$env:VCPKG_INSTALLATION_ROOT/triplets/community/x64-windows-static-md.cmake" "$env:VCPKG_INSTALLATION_ROOT/triplets/x64-windows-static-md.cmake" -Force
           }
+
           cmake -B build -S . -G Ninja `
             -DCMAKE_BUILD_TYPE=RelWithDebInfo `
             -DVCPKG_TARGET_TRIPLET=x64-windows-static-md `
@@ -14,27 +33,31 @@
       - name: Build CIGAR DLL
         shell: powershell
         run: |
-          cmake --build build -v 2>&1 | Tee-Object -FilePath "compile_error.txt"
+          cmake --build build -v 2>&1 | Tee-Object -FilePath compile_error.txt
 
-      - name: Package Release Mod Structure
+      - name: Package release
         shell: powershell
         run: |
-          New-Item -ItemType Directory -Force -Path "package/SKSE/Plugins"
-          $cigarDll = Get-ChildItem -Path "build" -Filter "CIGAR.dll" -Recurse | Select-Object -First 1
-          if ($cigarDll) {
-            Copy-Item $cigarDll.FullName "package/SKSE/Plugins/CIGAR.dll" -Force
-            Copy-Item $cigarDll.FullName "CIGAR.dll" -Force
+          New-Item -ItemType Directory -Force -Path "package/SKSE/Plugins" | Out-Null
+
+          $cigarDll = Get-ChildItem -Path "build" -Filter "CIGAR.dll" -Recurse |
+            Select-Object -First 1
+
+          if (-not $cigarDll) {
+            throw "CIGAR.dll was not produced."
           }
-          Get-ChildItem -Path "build" -Filter "*.dll" -Recurse | ForEach-Object {
-            if ($_.Name -ne "CIGAR.dll") {
-              Copy-Item $_.FullName "package/SKSE/Plugins/$($_.Name)" -Force
-              Write-Host "Bundled extra DLL: $($_.Name)"
-            }
+
+          Copy-Item $cigarDll.FullName "package/SKSE/Plugins/CIGAR.dll" -Force
+
+          if (Test-Path "Data/Interface/Translations") {
+            New-Item -ItemType Directory -Force -Path "package/Interface/Translations" | Out-Null
+            Copy-Item "Data/Interface/Translations/*" "package/Interface/Translations/" -Force -Recurse
           }
-          if (Test-Path "dist/CIGAR.json") {
-            Copy-Item "dist/CIGAR.json" "package/SKSE/Plugins/CIGAR.json"
-          }
-          if (Test-Path "dist/README-release.md") {
-            Copy-Item "dist/README-release.md" "package/README.md"
-          }
-          Compress-Archive -Path "package/*" -DestinationPath "CIGAR-Chinese-Mod.zip" -Force
+
+          Compress-Archive -Path "package/*" -DestinationPath "CIGAR-release.zip" -Force
+
+      - name: Upload CIGAR
+        uses: actions/upload-artifact@v4
+        with:
+          name: CIGAR-release
+          path: CIGAR-release.zip
