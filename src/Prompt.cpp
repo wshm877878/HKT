@@ -1,10 +1,13 @@
 #include "Prompt.h"
 
 #include <algorithm>
+#include <filesystem>
 #include <fstream>
 #include <map>
 #include <string>
 #include <vector>
+
+#include <Windows.h>
 
 #include "Module.h"
 #include "Settings.h"
@@ -28,47 +31,53 @@ namespace CIGAR
 
 		std::vector<Translation> translations;
 
+		std::filesystem::path TranslationFilePath()
+		{
+			wchar_t buffer[32768]{};
+			const auto length = ::GetModuleFileNameW(nullptr, buffer, static_cast<DWORD>(std::size(buffer)));
+			if (length > 0 && length < std::size(buffer)) {
+				return std::filesystem::path(buffer, buffer + length).parent_path() /
+					L"Data" / L"Interface" / L"Translations" / L"CIGAR_CHINESE.txt";
+			}
+			return std::filesystem::path("Data") / "Interface" / "Translations" / "CIGAR_CHINESE.txt";
+		}
+
 		std::string Trim(std::string a_text)
 		{
-			const auto isSpace = [](unsigned char a_char) {
-				return a_char == ' ' || a_char == '\t' || a_char == '\r' || a_char == '\n';
+			const auto isSpace = [](unsigned char a_c) {
+				return a_c == ' ' || a_c == '\t' || a_c == '\r' || a_c == '\n';
 			};
-
 			auto first = a_text.begin();
 			while (first != a_text.end() && isSpace(static_cast<unsigned char>(*first))) {
 				++first;
 			}
-
 			auto last = a_text.end();
 			while (last != first && isSpace(static_cast<unsigned char>(*(last - 1)))) {
 				--last;
 			}
-
-			return { first, last };
+			return std::string(first, last);
 		}
 
 		void LoadTranslations()
 		{
 			translations.clear();
 
-			constexpr auto kPath = "Data/Interface/Translations/CIGAR_CHINESE.txt";
-			std::ifstream file(kPath, std::ios::binary);
+			const auto path = TranslationFilePath();
+			std::ifstream file(path, std::ios::binary);
 			if (!file) {
-				logs::info("CIGAR Chinese translation file not found: {}", kPath);
+				logs::info("CIGAR Chinese translation file not found: {}", path.string());
 				return;
 			}
 
 			std::string line;
 			std::size_t loaded = 0;
 			while (std::getline(file, line)) {
-				// Accept UTF-8 BOM on the first line.
 				if (loaded == 0 && line.size() >= 3 &&
 					static_cast<unsigned char>(line[0]) == 0xEF &&
 					static_cast<unsigned char>(line[1]) == 0xBB &&
 					static_cast<unsigned char>(line[2]) == 0xBF) {
 					line.erase(0, 3);
 				}
-
 				if (!line.empty() && line.back() == '\r') {
 					line.pop_back();
 				}
@@ -95,13 +104,10 @@ namespace CIGAR
 				++loaded;
 			}
 
-			// Match longer phrases first so a specific prompt wins over a shorter substring.
-			std::sort(translations.begin(), translations.end(),
-				[](const Translation& a_left, const Translation& a_right) {
-					return a_left.from.size() > a_right.from.size();
-				});
-
-			logs::info("Loaded {} CIGAR Chinese translation entries", translations.size());
+			std::sort(translations.begin(), translations.end(), [](const Translation& a_lhs, const Translation& a_rhs) {
+				return a_lhs.from.size() > a_rhs.from.size();
+			});
+			logs::info("Loaded {} CIGAR Chinese translation entries from {}", translations.size(), path.string());
 		}
 
 		std::string TranslateText(std::string a_text)
@@ -252,7 +258,10 @@ namespace CIGAR
 		if (!Prompts::Available()) {
 			return;
 		}
+
+		// Translate once, immediately before the text reaches SkyPrompt.
 		a_text = TranslateText(std::move(a_text));
+
 		// SkyPrompt reads the prompt later through GetPrompts(), so the text must outlive this call.
 		text = std::move(a_text);
 		// The keyboard key comes from CIGAR's settings; a device without a listed key (the gamepad)
