@@ -1,6 +1,10 @@
 #include "Prompt.h"
 
+#include <algorithm>
+#include <fstream>
 #include <map>
+#include <string>
+#include <vector>
 
 #include "Module.h"
 #include "Settings.h"
@@ -15,6 +19,102 @@ namespace CIGAR
 		// SkyPrompt fades a prompt out after its lifetime setting; re-sending well within it keeps
 		// the prompt up.
 		constexpr auto kKeepAliveInterval = 2s;
+
+		struct Translation
+		{
+			std::string from;
+			std::string to;
+		};
+
+		std::vector<Translation> translations;
+
+		std::string Trim(std::string a_text)
+		{
+			const auto isSpace = [](unsigned char a_char) {
+				return a_char == ' ' || a_char == '\t' || a_char == '\r' || a_char == '\n';
+			};
+
+			auto first = a_text.begin();
+			while (first != a_text.end() && isSpace(static_cast<unsigned char>(*first))) {
+				++first;
+			}
+
+			auto last = a_text.end();
+			while (last != first && isSpace(static_cast<unsigned char>(*(last - 1)))) {
+				--last;
+			}
+
+			return { first, last };
+		}
+
+		void LoadTranslations()
+		{
+			translations.clear();
+
+			constexpr auto kPath = "Data/Interface/Translations/CIGAR_CHINESE.txt";
+			std::ifstream file(kPath, std::ios::binary);
+			if (!file) {
+				logs::info("CIGAR Chinese translation file not found: {}", kPath);
+				return;
+			}
+
+			std::string line;
+			std::size_t loaded = 0;
+			while (std::getline(file, line)) {
+				// Accept UTF-8 BOM on the first line.
+				if (loaded == 0 && line.size() >= 3 &&
+					static_cast<unsigned char>(line[0]) == 0xEF &&
+					static_cast<unsigned char>(line[1]) == 0xBB &&
+					static_cast<unsigned char>(line[2]) == 0xBF) {
+					line.erase(0, 3);
+				}
+
+				if (!line.empty() && line.back() == '\r') {
+					line.pop_back();
+				}
+				if (line.empty() || line.front() == '#') {
+					continue;
+				}
+
+				auto separator = line.find('\t');
+				if (separator == std::string::npos) {
+					separator = line.find('=');
+				}
+				if (separator == std::string::npos) {
+					logs::warn("Ignoring malformed CIGAR translation line");
+					continue;
+				}
+
+				auto from = Trim(line.substr(0, separator));
+				auto to = Trim(line.substr(separator + 1));
+				if (from.empty() || to.empty()) {
+					continue;
+				}
+
+				translations.push_back({ std::move(from), std::move(to) });
+				++loaded;
+			}
+
+			// Match longer phrases first so a specific prompt wins over a shorter substring.
+			std::sort(translations.begin(), translations.end(),
+				[](const Translation& a_left, const Translation& a_right) {
+					return a_left.from.size() > a_right.from.size();
+				});
+
+			logs::info("Loaded {} CIGAR Chinese translation entries", translations.size());
+		}
+
+		std::string TranslateText(std::string a_text)
+		{
+			for (const auto& translation : translations) {
+				std::size_t pos = 0;
+				while ((pos = a_text.find(translation.from, pos)) != std::string::npos) {
+					a_text.replace(pos, translation.from.size(), translation.to);
+					pos += translation.to.size();
+				}
+			}
+			return a_text;
+		}
 
 		const char* EventName(SkyPromptAPI::PromptEventType a_type)
 		{
@@ -84,6 +184,8 @@ namespace CIGAR
 
 	bool Prompts::Init()
 	{
+		LoadTranslations();
+
 		if (clientID == 0) {
 			clientID = SkyPromptAPI::RequestClientID();
 		}
@@ -150,6 +252,7 @@ namespace CIGAR
 		if (!Prompts::Available()) {
 			return;
 		}
+		a_text = TranslateText(std::move(a_text));
 		// SkyPrompt reads the prompt later through GetPrompts(), so the text must outlive this call.
 		text = std::move(a_text);
 		// The keyboard key comes from CIGAR's settings; a device without a listed key (the gamepad)
